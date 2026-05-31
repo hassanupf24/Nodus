@@ -1,0 +1,142 @@
+# ==============================================================================
+# OpenTelemetry Collector Configuration — Nodus
+# ==============================================================================
+
+receivers:
+  # OTLP receiver for gRPC and HTTP
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 16
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://localhost:*"
+            - "https://localhost:*"
+
+  # Collect the collector's own metrics
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: otel-collector-self
+          scrape_interval: 10s
+          static_configs:
+            - targets:
+                - 0.0.0.0:8888
+
+processors:
+  # Batch processor for efficient export
+  batch:
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+    timeout: 5s
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Resource detection
+  resource:
+    attributes:
+      - key: service.namespace
+        value: nodus
+        action: upsert
+      - key: deployment.environment
+        value: development
+        action: upsert
+
+  # Add resource attributes from environment
+  resourcedetection:
+    detectors:
+      - env
+      - system
+    system:
+      hostname_sources:
+        - os
+    timeout: 5s
+
+exporters:
+  # Prometheus exporter (metrics are scraped by Prometheus)
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: nodus
+    send_timestamps: true
+    metric_expiration: 5m
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Debug logging exporter
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /
+    tls:
+      insecure: true
+
+  # Performance profiler
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # zPages for debugging
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions:
+    - health_check
+    - pprof
+    - zpages
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: 0.0.0.0:8888
+
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - resource
+        - resourcedetection
+        - batch
+      exporters:
+        - debug
+
+    # Metrics pipeline
+    metrics:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - resource
+        - resourcedetection
+        - batch
+      exporters:
+        - prometheus
+        - debug
+
+    # Logs pipeline
+    logs:
+      receivers:
+        - otlp
+      processors:
+        - memory_limiter
+        - resource
+        - resourcedetection
+        - batch
+      exporters:
+        - debug

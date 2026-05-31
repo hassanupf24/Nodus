@@ -1,0 +1,206 @@
+# ==============================================================================
+# Prometheus Alert Rules — Nodus
+# ==============================================================================
+
+groups:
+  # ============================================================================
+  # AI Inference Alerts
+  # ============================================================================
+  - name: nodus_inference
+    interval: 30s
+    rules:
+      - alert: HighInferenceLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(nodus_inference_duration_seconds_bucket{job="nodus-ai-services"}[5m])) by (le, model)
+          ) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "High AI inference latency (p95 > 5s)"
+          description: >-
+            The 95th percentile inference latency for model {{ $labels.model }}
+            is {{ $value | humanizeDuration }}, which exceeds the 5-second threshold.
+          runbook_url: https://docs.nodus.dev/runbooks/high-inference-latency
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(nodus_http_requests_total{job="nodus-ai-services", status_code=~"5.."}[5m]))
+            /
+            sum(rate(nodus_http_requests_total{job="nodus-ai-services"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: ai
+        annotations:
+          summary: "High 5xx error rate (> 5%)"
+          description: >-
+            The AI services error rate is {{ $value | humanizePercentage }},
+            exceeding the 5% threshold over the last 5 minutes.
+          runbook_url: https://docs.nodus.dev/runbooks/high-error-rate
+
+      - alert: EmbeddingPipelineStalled
+        expr: |
+          rate(nodus_embeddings_processed_total{job="nodus-ai-services"}[10m]) == 0
+          and
+          nodus_embedding_queue_size{job="nodus-ai-services"} > 0
+        for: 10m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "Embedding pipeline is stalled"
+          description: >-
+            No embeddings have been processed in the last 10 minutes,
+            but the queue has {{ $value }} items waiting.
+
+  # ============================================================================
+  # Service Health Alerts
+  # ============================================================================
+  - name: nodus_service_health
+    interval: 15s
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: >-
+            The service {{ $labels.job }} (instance {{ $labels.instance }})
+            has been unreachable for more than 2 minutes.
+          runbook_url: https://docs.nodus.dev/runbooks/service-down
+
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            process_resident_memory_bytes{job="nodus-ai-services"}
+            /
+            machine_memory_bytes
+          ) > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High memory usage (> 80%)"
+          description: >-
+            AI services memory usage is at {{ $value | humanizePercentage }}
+            of total available memory.
+          runbook_url: https://docs.nodus.dev/runbooks/high-memory-usage
+
+      - alert: ContainerHighMemory
+        expr: |
+          container_memory_usage_bytes{name=~"nodus-.*"}
+          /
+          container_spec_memory_limit_bytes{name=~"nodus-.*"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Container {{ $labels.name }} memory > 85% of limit"
+          description: >-
+            Container {{ $labels.name }} is using {{ $value | humanizePercentage }}
+            of its memory limit.
+
+  # ============================================================================
+  # GPU Alerts
+  # ============================================================================
+  - name: nodus_gpu
+    interval: 30s
+    rules:
+      - alert: GPUMemoryHigh
+        expr: |
+          nodus_gpu_memory_used_bytes
+          /
+          nodus_gpu_memory_total_bytes > 0.90
+        for: 5m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "GPU memory usage > 90%"
+          description: >-
+            GPU {{ $labels.gpu_id }} memory usage is at
+            {{ $value | humanizePercentage }}. Models may fail to load.
+          runbook_url: https://docs.nodus.dev/runbooks/gpu-memory-high
+
+      - alert: GPUTemperatureHigh
+        expr: nodus_gpu_temperature_celsius > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "GPU temperature > 85°C"
+          description: >-
+            GPU {{ $labels.gpu_id }} temperature is {{ $value }}°C.
+            Thermal throttling may occur.
+
+  # ============================================================================
+  # Infrastructure Alerts
+  # ============================================================================
+  - name: nodus_infrastructure
+    interval: 30s
+    rules:
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay", mountpoint="/"}
+            /
+            node_filesystem_size_bytes{fstype!~"tmpfs|overlay", mountpoint="/"}
+          ) < 0.10
+        for: 10m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Disk space < 10% remaining"
+          description: >-
+            Only {{ $value | humanizePercentage }} disk space remaining
+            on {{ $labels.instance }} ({{ $labels.mountpoint }}).
+          runbook_url: https://docs.nodus.dev/runbooks/disk-space-low
+
+      - alert: QdrantCollectionUnhealthy
+        expr: qdrant_collection_status{status!="green"} > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "Qdrant collection {{ $labels.collection }} is unhealthy"
+          description: >-
+            Collection {{ $labels.collection }} has status {{ $labels.status }}.
+
+      - alert: HighVectorSearchLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(nodus_vector_search_duration_seconds_bucket[5m])) by (le, collection)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "High vector search latency (p95 > 2s)"
+          description: >-
+            Vector search p95 latency for collection {{ $labels.collection }}
+            is {{ $value | humanizeDuration }}.
+
+      - alert: PrometheusTargetDown
+        expr: prometheus_target_scrape_pool_targets{scrape_pool=~"nodus-.*"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "No targets in scrape pool {{ $labels.scrape_pool }}"
+          description: >-
+            Prometheus cannot discover any targets for {{ $labels.scrape_pool }}.

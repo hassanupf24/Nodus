@@ -1,0 +1,94 @@
+[project]
+name = "nodus-ai-services"
+version = "0.1.0"
+description = "Nodus — Local-First Private AI Memory Infrastructure"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Nodus Team" }]
+
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    # LLM / Agents
+    "langchain>=0.3.0",
+    "langgraph>=0.2.0",
+    "langchain-community>=0.3.0",
+    # Embeddings
+    "sentence-transformers>=3.3.0",
+    "onnxruntime>=1.20.0",
+    # Vector stores
+    "qdrant-client>=1.12.0",
+    "lancedb>=0.15.0",
+    # Document parsing
+    "pymupdf>=1.24.0",
+    "python-docx>=1.1.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.3.0",
+    "chardet>=5.2.0",
+    "markdown>=3.7",
+    # OCR
+    "paddleocr>=2.9.0",
+    "pytesseract>=0.3.13",
+    # Speech
+    # whisper-cpp bindings installed separately
+    # Database
+    "duckdb>=1.1.0",
+    "aiosqlite>=0.20.0",
+    # HTTP & async
+    "httpx>=0.28.0",
+    "sse-starlette>=2.1.0",
+    # Logging & utils
+    "structlog>=24.4.0",
+    "python-multipart>=0.0.12",
+    "psutil>=6.1.0",
+    # File upload
+    "aiofiles>=24.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx",  # for TestClient
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = [".."]
+testpaths = ["tests", "../ingestion_services/tests", "../vector_services/tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "ANN", "B", "SIM"]
+ignore = ["ANN101", "ANN102"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "gateway",
+    "llm_runtime",
+    "embedding",
+    "search",
+    "knowledge_graph",
+    "agents",
+    "shared"
+]

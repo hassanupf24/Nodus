@@ -1,0 +1,298 @@
+# ==============================================================================
+# Nodus CI Pipeline
+# Runs on: push to main, pull requests to main
+# Jobs: python-tests, typescript-tests, rust-tests, lint, security
+# ==============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+  RUST_TOOLCHAIN: stable
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ============================================================================
+  # Python Tests
+  # ============================================================================
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-services
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "ai-services/uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Run tests with coverage
+        run: |
+          uv run pytest \
+            --cov=. \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --junitxml=test-results.xml \
+            -v
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage
+          path: ai-services/coverage.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-test-results
+          path: ai-services/test-results.xml
+
+  # ============================================================================
+  # TypeScript Tests
+  # ============================================================================
+  typescript-tests:
+    name: TypeScript Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop-app
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest
+        run: npx vitest run --coverage --reporter=verbose
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-coverage
+          path: desktop-app/coverage/
+
+  # ============================================================================
+  # Rust Tests
+  # ============================================================================
+  rust-tests:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop-app/src-tauri
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop-app/src-tauri/target
+          key: rust-${{ runner.os }}-${{ hashFiles('desktop-app/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            rust-${{ runner.os }}-
+
+      - name: Run Cargo tests
+        run: cargo test --verbose
+
+  # ============================================================================
+  # Linting
+  # ============================================================================
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -- Python lint --
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dev dependencies
+        working-directory: ai-services
+        run: uv sync --frozen --dev
+
+      - name: Ruff lint
+        working-directory: ai-services
+        run: |
+          uv run ruff check . --output-format=github
+          uv run ruff format --check .
+
+      # -- TypeScript lint --
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+
+      - name: Install Node dependencies
+        working-directory: desktop-app
+        run: npm ci
+
+      - name: ESLint
+        working-directory: desktop-app
+        run: npx eslint . --max-warnings=0
+
+      # -- Rust lint --
+      - name: Install system dependencies for Rust
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop-app/src-tauri/target
+          key: rust-lint-${{ runner.os }}-${{ hashFiles('desktop-app/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            rust-lint-${{ runner.os }}-
+
+      - name: Clippy
+        working-directory: desktop-app/src-tauri
+        run: cargo clippy -- -D warnings
+
+      - name: Rustfmt
+        working-directory: desktop-app/src-tauri
+        run: cargo fmt -- --check
+
+  # ============================================================================
+  # Security Scanning
+  # ============================================================================
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -- Python security --
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python dependencies
+        working-directory: ai-services
+        run: uv sync --frozen --dev
+
+      - name: pip-audit
+        working-directory: ai-services
+        run: uv run pip-audit --require-hashes=false --strict
+        continue-on-error: true
+
+      # -- TypeScript security --
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop-app/package-lock.json
+
+      - name: Install Node dependencies
+        working-directory: desktop-app
+        run: npm ci
+
+      - name: npm audit
+        working-directory: desktop-app
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      # -- Rust security --
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Cargo audit
+        working-directory: desktop-app/src-tauri
+        run: cargo audit
+        continue-on-error: true

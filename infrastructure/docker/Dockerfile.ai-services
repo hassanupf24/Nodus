@@ -1,0 +1,90 @@
+# ==============================================================================
+# Nodus AI Services — CPU-only Dockerfile
+# Multi-stage build for minimal image size
+# ==============================================================================
+
+# ------------------------------------
+# Stage 1: Dependency Builder
+# ------------------------------------
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+# Install uv for fast dependency resolution
+COPY --from=ghcr.io/astral-sh/uv:0.7 /uv /uvx /bin/
+
+WORKDIR /build
+
+# Copy dependency manifests first for layer caching
+COPY ai-services/pyproject.toml ai-services/uv.lock* ./ai-services/
+
+# Install dependencies into a virtual environment
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd ai-services && \
+    uv sync --frozen --no-install-project --no-dev
+
+# Copy application source
+COPY ai-services/ ./ai-services/
+COPY ingestion_services/ /app/ingestion_services/
+COPY vector_services/ /app/vector_services/
+
+# Install the project itself
+RUN --mount=type=cache,target=/root/.cache/uv \
+    cd ai-services && \
+    uv sync --frozen --no-dev
+
+# ------------------------------------
+# Stage 2: Production Runtime
+# ------------------------------------
+FROM python:3.12-slim AS runtime
+
+LABEL maintainer="Nodus Team" \
+      description="Nodus AI Services — Local-First Private AI Memory Infrastructure" \
+      version="1.0.0"
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/ai-services/.venv/bin:$PATH" \
+    PYTHONPATH="/app:/app/ai-services" \
+    NODUS_ENV=production \
+    NODUS_HOST=0.0.0.0 \
+    NODUS_PORT=8000
+
+# Install minimal runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        libgomp1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd --gid 1000 nodus && \
+    useradd --uid 1000 --gid nodus --shell /bin/bash --create-home nodus
+
+WORKDIR /app
+
+# Copy installed packages and application from builder
+COPY --from=builder --chown=nodus:nodus /build/ai-services /app/ai-services
+COPY --from=builder --chown=nodus:nodus /build/ingestion_services /app/ingestion_services
+COPY --from=builder --chown=nodus:nodus /build/vector_services /app/vector_services
+
+# Create directories for data and logs
+RUN mkdir -p /app/data /app/logs /app/models && \
+    chown -R nodus:nodus /app
+
+USER nodus
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
+ENTRYPOINT ["python", "-m", "uvicorn"]
+CMD ["gateway.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

@@ -1,0 +1,86 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Rust
+target/
+*.rs.bk
+
+# Tauri
+desktop-app/src-tauri/target/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Database files (user data - never commit)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.duckdb
+*.lance/
+
+# Vector store data
+qdrant_storage/
+lancedb_data/
+
+# Model files (too large for git)
+models/
+*.gguf
+*.ggml
+*.bin
+*.onnx
+*.safetensors
+
+# Test coverage
+coverage/
+htmlcov/
+.coverage
+*.lcov
+
+# Docker
+.docker/
+
+# Secrets
+*.pem
+*.key
+*.crt
+*.p12
+
+# Build artifacts
+*.msi
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.exe
+!desktop-app/src-tauri/*.exe
