@@ -1,5 +1,7 @@
+from typing import Annotated
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from pydantic import BaseModel
+
 from agents.orchestrator import AgentOrchestrator
 from core.database import DatabaseManager
 from ingestion.tasks import IngestionPipeline
@@ -11,6 +13,7 @@ ingestion_pipeline = IngestionPipeline(db_manager)
 # We lazily initialize the orchestrator
 orchestrator: AgentOrchestrator | None = None
 
+
 @app.on_event("startup")
 async def startup_event():
     global orchestrator
@@ -18,19 +21,23 @@ async def startup_event():
     await db_manager.init_sqlite()
     await db_manager.init_qdrant()
 
+
 class ChatRequest(BaseModel):
     message: str
     context: dict | None = None
+
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
+
 @app.post("/api/v1/ingest/file")
-async def ingest_file(file: UploadFile = File(...)):
+async def ingest_file(file: Annotated[UploadFile, File(...)]):
     content = await file.read()
     doc_id = await ingestion_pipeline.process_document(file.filename, content)
     return {"status": "success", "doc_id": doc_id}
+
 
 @app.websocket("/api/v1/chat/stream")
 async def chat_stream(websocket: WebSocket) -> None:
@@ -43,6 +50,6 @@ async def chat_stream(websocket: WebSocket) -> None:
                 # Stream the LangGraph execution back to the client
                 async for chunk in orchestrator.process_stream(message):
                     await websocket.send_text(chunk)
-                    
+
     except WebSocketDisconnect:
         pass

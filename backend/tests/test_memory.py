@@ -1,10 +1,13 @@
 import pytest
+
 from memory.engine import MemoryEngine
+
 
 @pytest.mark.asyncio
 async def test_memory_engine_init():
     engine = MemoryEngine()
     assert engine is not None
+
 
 @pytest.mark.asyncio
 async def test_add_episode():
