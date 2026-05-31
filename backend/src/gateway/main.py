@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from pydantic import BaseModel
 
@@ -15,7 +15,7 @@ orchestrator: AgentOrchestrator | None = None
 
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     global orchestrator
     orchestrator = AgentOrchestrator()
     await db_manager.init_sqlite()
@@ -24,7 +24,7 @@ async def startup_event():
 
 class ChatRequest(BaseModel):
     message: str
-    context: dict | None = None
+    context: dict[str, Any] | None = None
 
 
 @app.get("/health")
@@ -33,9 +33,9 @@ async def health_check() -> dict[str, str]:
 
 
 @app.post("/api/v1/ingest/file")
-async def ingest_file(file: Annotated[UploadFile, File(...)]):
+async def ingest_file(file: Annotated[UploadFile, File(...)]) -> dict[str, str]:
     content = await file.read()
-    doc_id = await ingestion_pipeline.process_document(file.filename, content)
+    doc_id = await ingestion_pipeline.process_document(file.filename or "unknown", content)
     return {"status": "success", "doc_id": doc_id}
 
 

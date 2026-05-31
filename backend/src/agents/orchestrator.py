@@ -1,7 +1,7 @@
 import json
 import operator
 from collections.abc import AsyncGenerator, Sequence
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
@@ -20,11 +20,11 @@ class AgentOrchestrator:
         self.llm = get_llm()
         self.graph = self.build_graph()
 
-    def build_graph(self) -> StateGraph:
+    def build_graph(self) -> Any:
         """Builds the LangGraph state machine routing to specialized agents."""
         workflow = StateGraph(NodusState)
 
-        async def system_agent_node(state: NodusState) -> dict:
+        async def system_agent_node(state: NodusState) -> dict[str, Any]:
             """The primary routing node. For now, it just responds to the user."""
             messages = state.get("messages", [])
             # Prepend system prompt
